@@ -9,6 +9,7 @@
   --bg:#F5F8FC; --card:#FFFFFF; --primary:#2E75B6; --primary-light:#EBF3FB;
   --border:#D6E4F0; --text:#2B3A4A; --muted:#7A8CA0;
   --ok:#2E8B57; --warn:#E8A33D; --err:#D9534F; --dup:#8E6FB8;
+  --seller:#D97706;   /* 发票相关方=销售方时的橙色标识 */
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:var(--bg);color:var(--text);font-size:14px;}
@@ -27,7 +28,7 @@ body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:var(--bg)
 .dropzone{flex:1;border:2px dashed #A8C8E8;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--muted);cursor:pointer;transition:all .2s;min-height:110px;}
 .dropzone:hover,.dropzone.dragover{border-color:var(--primary);background:var(--primary-light);}
 .dropzone svg{width:38px;height:38px;stroke:var(--primary);fill:none;stroke-width:1.6;}
-.dropzone .dz-text b{color:var(--primary);}
+.dropzone .dz-text b{color:var(--primary);font-size:14px;}
 .dropzone .dz-hint{font-size:12px;}
 .btn{border:none;border-radius:8px;padding:10px 22px;font-size:14px;cursor:pointer;transition:all .15s;font-family:inherit;}
 .btn-primary{background:var(--primary);color:#fff;}
@@ -76,6 +77,9 @@ td.no-select{cursor:default;} /* 操作/状态列：不可框选 */
 td.num{text-align:right;color:var(--muted);}
 td.k-filename{width:100%;min-width:180px;color:var(--muted);word-break:break-all;white-space:normal;} /* 弹性列：吸收剩余宽度，总是完整显示并自适应换行 */
 td.k-amount{min-width:130px;text-align:right;} /* 价税合计：金额右对齐 */
+/* 发票相关方列：销售方橙色（购买方保持默认色）；表头“销售方”字样同色呼应 */
+thead th .hdr-seller{color:var(--seller);}
+td.k-seller{color:var(--seller);}
 .col-actions,.col-status{width:96px;text-align:center;}
 .col-actions .act-wrap{display:inline-flex;gap:6px;align-items:center;} /* 查验/删除两按钮留出间距，防误点 */
 .empty-tip{padding:40px;text-align:center;color:var(--muted);}
@@ -165,12 +169,15 @@ td.k-amount{min-width:130px;text-align:right;} /* 价税合计：金额右对齐
   <div class="card upload-card">
     <div class="dropzone" id="dropzone">
       <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      <div class="dz-text">将 PDF 文件<b>拖拽到此处</b>，或</div>
-      <div class="dz-hint">支持多选 · 一次可拖入多个文件</div>
+      <div class="dz-text">将<b>PDF文件</b>或<b>整个文件夹</b>拖拽到此处，或点击右侧按钮</div>
+      <div class="dz-hint">支持多选 · 文件夹自动解析其中所有 PDF（含子文件夹）</div>
     </div>
     <div class="upload-side">
-      <button class="btn btn-primary" id="btnSelect">选择 PDF 文件</button>
-      <div class="tip">
+      <button class="btn btn-primary" id="btnSelect">选择PDF文件</button>
+      <button class="btn btn-primary" id="btnSelectDir" style="margin-top:10px">选择文件夹</button>
+        <div class="tip">
+        · 拖拽/选择均可，可整个文件夹一起读（含子文件夹）<br>
+        · 若浏览器限制拖拽读取文件夹，请改点「选择文件夹」按钮<br>
         · 表格支持鼠标框选区域，Ctrl+C 复制后可粘贴进 Excel（操作/状态列不可框选）<br>
         · 双击数据单元格可直接编辑，修改自动保存（文件名列只读）<br>
         · 数据仅存本机浏览器（localStorage）
@@ -178,6 +185,7 @@ td.k-amount{min-width:130px;text-align:right;} /* 价税合计：金额右对齐
     </div>
   </div>
   <input type="file" id="fileInput" accept=".pdf,application/pdf" multiple hidden>
+  <input type="file" id="dirInput" webkitdirectory multiple hidden>
 
   <div class="progress-wrap" id="progressWrap">
     <div class="progress-bar"><div class="fill" id="progressFill"></div></div>
@@ -194,7 +202,7 @@ td.k-amount{min-width:130px;text-align:right;} /* 价税合计：金额右对齐
         <span class="count-chip" id="countChip">共 0 条</span>
       </div>
       <div class="right">
-        <input class="search-input" id="searchInput" placeholder="搜索文件名/发票号码…">
+        <input class="search-input" id="searchInput" placeholder="搜索文件名/发票号码/相关方…">
         <button class="btn btn-ghost" id="btnDelSelected">删除选中</button>
         <button class="btn btn-ghost" id="btnDup">删除重复</button>
         <button class="btn btn-ghost" id="btnClear">清空</button>
@@ -210,7 +218,7 @@ td.k-amount{min-width:130px;text-align:right;} /* 价税合计：金额右对齐
             <th>2. 发票代码</th>
             <th>3. 发票号码</th>
             <th>4. 价税合计</th>
-            <th>5. 发票购买方</th>
+            <th>5. 发票相关方（购买方/<span class="hdr-seller">销售方</span>）</th>
             <th>6. PDF文件名</th>
             <th class="col-actions">操作</th>
             <th class="col-status">状态</th>
@@ -247,7 +255,7 @@ td.k-amount{min-width:130px;text-align:right;} /* 价税合计：金额右对齐
       <div class="h-sec">
         <div class="h-t">三步开始用</div>
         <ol>
-          <li>把电子发票 PDF <b>拖进页面虚线框</b>（可一次拖多个）</li>
+          <li>把电子发票 PDF <b>拖进页面虚线框</b>（可一次拖多个；也可直接<b>拖入整个文件夹</b>，自动解析其中所有 PDF，含子文件夹）；若浏览器限制拖拽读文件夹，改点<b>「选择文件夹」</b>按钮</li>
           <li>发票信息自动填入表格，识别结果<b>可直接修改</b></li>
           <li>点<b>「导出 CSV」</b>存成 Excel 文件，或框选表格后 Ctrl+C 直接粘贴</li>
         </ol>
@@ -258,6 +266,7 @@ td.k-amount{min-width:130px;text-align:right;} /* 价税合计：金额右对齐
           <li><b>修改内容</b>：双击单元格进入编辑（底色变黄），改完自动保存；编辑中单击其他格即切换选中，按 Esc 退出编辑</li>
           <li><b>金额输入</b>：结束自动变千分位格式；输入全角逗号「，」句号「。」会自动转换，超大金额也不会丢失精度</li>
           <li><b>复制</b>：按住左键拖动框选（或点起始格后 Shift+点结束格）→ Ctrl+C → 粘贴进 Excel/WPS</li>
+          <li><b>发票相关方</b>：自动识别我方公司——购买方是我方时显示<b>销售方</b>（橙色），否则显示<b>购买方</b>（默认色）；悬停单元格可同时查看双方完整名称</li>
         </ul>
       </div>
       <div class="h-sec">
@@ -540,7 +549,9 @@ PDF电子发票解析工具 — 使用说明
 ------------
 1. 将整个「PDF电子发票解析工具」文件夹拷贝到任意电脑（无需安装任何软件）
 2. 双击 index.html，用 Chrome 或 Edge 浏览器打开
-3. 将电子发票 PDF 拖入页面虚线框（或点击"选择 PDF 文件"按钮，支持多选）
+3. 将电子发票 PDF 拖入页面虚线框（或点击"选择 PDF 文件"按钮，支持多选；
+   也可直接拖入整个文件夹，自动解析其中所有 PDF，含子文件夹；
+   若浏览器限制拖拽读取文件夹，改点"选择文件夹"按钮，同样含子文件夹）
 4. 解析结果自动填入下方表格
 
 二、表格说明（1-5 列可编辑，修改后自动保存；文件名列只读）
@@ -550,7 +561,9 @@ PDF电子发票解析工具 — 使用说明
 3. 发票号码    ：数电票为 20 位数字
 4. 价税合计    ：单位元，千分位显示，精度到分（如 1,234,567.89）；
                  超大金额也精确显示，不会四舍五入丢精度
-5. 发票购买方  ：取自票面"购买方-名称"栏
+5. 发票相关方  ：自动识别我方公司：购买方为我方时显示销售方名称（表格中
+                 橙色标示），否则显示购买方名称（默认色）；悬停单元格可
+                 同时查看购买方/销售方名称
 6. PDF文件名   ：来源文件名，只读；总是完整显示，宽度不足时自动换行
 
 三、表格编辑与复制（在线 Excel 式操作）
@@ -575,7 +588,7 @@ PDF电子发票解析工具 — 使用说明
 
 四、顶部按钮与状态标识
 ------------
-· 搜索框      ：按文件名 / 发票号码 / 购买方过滤
+· 搜索框      ：按文件名 / 发票号码 / 相关方（购买方或销售方均可）过滤
 · 清空        ：删除全部记录（有确认提示）
 · 导出 CSV    ：导出为带表头的 CSV（Excel 可直接打开，UTF-8 编码；
                 发票代码/号码按文本格式导出，不会被 Excel 截断变科学计数法）
@@ -716,6 +729,15 @@ async function ensureLibs(){
     /* worker 必须与实际选中的 pdf 源同一目录，否则版本不匹配 */
     if(window.pdfjsLib && pdfUrl){
       pdfjsLib.GlobalWorkerOptions.workerSrc = workerOfPdf(pdfUrl);
+      /* CID 中文字体（票面公司名称等）依赖 CMap 映射表：随 pdfjs-dist 包的 cmaps/ 目录提供。
+         未配置时 pdf.js loadFont 直接失败，公司名称整块提取不到也渲染不出（专票多内嵌
+         ToUnicode 不受影响，大量普通发票会中招，导致“发票购买方”识别错乱）。
+         standard_fonts 同理，供未内嵌程序的标准字体兜底。 */
+      const pkgBase = pdfUrl.replace(/\/build\/[^\/]+$/i, '/');
+      window.__pdfjsCMap = {
+        cMapUrl: pkgBase + 'cmaps/',
+        standardFontDataUrl: pkgBase + 'standard_fonts/'
+      };
     }
   })();
   return _libPromise;
@@ -799,7 +821,23 @@ function loadRecords(){ try{ records = JSON.parse(localStorage.getItem(STORAGE_K
 function saveRecords(){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); }catch(e){} }
 
 /* ================= 渲染 ================= */
-const FIELDS = ['invoiceDate','invoiceCode','invoiceNumber','totalAmount','buyer','fileName'];
+const FIELDS = ['invoiceDate','invoiceCode','invoiceNumber','totalAmount','party','fileName'];
+
+/* ================= 发票相关方（购买方/销售方） ================= */
+/* ★ 我方公司名称：购买方为我方时，“发票相关方”列显示销售方（橙色）；否则显示购买方（默认色）。
+   前缀匹配用于覆盖“××分公司”等分支机构；更换公司时改这里即可。 */
+const MY_COMPANY = '中邮科通信技术股份有限公司';
+function isMyCompany(name){
+  const n = String(name==null?'':name).replace(/\s+/g,'');
+  return !!n && (n === MY_COMPANY || n.indexOf(MY_COMPANY) === 0);
+}
+/* 相关方 = 交易对方：购买方是我方 → 取销售方；否则取购买方（旧记录无 seller 字段也兼容） */
+function partyOf(rec){
+  const b = String(rec.buyer==null?'':rec.buyer).trim();
+  const s = String(rec.seller==null?'':rec.seller).trim();
+  if((b && isMyCompany(b) && s) || (!b && s)) return {name:s, role:'seller'};
+  return {name:b, role:'buyer'};
+}
 const STATUS_TEXT = {ok:'成功', warn:'部分成功', err:'未识别', dup:'重复'};
 const STATUS_BADGE = {ok:'ok', warn:'warn', err:'err', dup:'dup'};
 
@@ -860,7 +898,7 @@ function formatAmountStr(s){
 
 function render(){
   const kw = $('#searchInput').value.trim().toLowerCase();
-  const list = kw ? records.filter(function(r){ return ((r.fileName||'')+' '+(r.invoiceNumber||'')+' '+(r.buyer||'')).toLowerCase().indexOf(kw)>-1; }) : records;
+  const list = kw ? records.filter(function(r){ return ((r.fileName||'')+' '+(r.invoiceNumber||'')+' '+(r.buyer||'')+' '+(r.seller||'')+' '+partyOf(r).name).toLowerCase().indexOf(kw)>-1; }) : records;
   const tbody = $('#tbody');
   tbody.innerHTML = '';
   const frag = document.createDocumentFragment();
@@ -875,6 +913,10 @@ function render(){
         tds += '<td class="k-filename readonly-cell">'+esc(r[k])+'</td>';
       } else if(k === 'totalAmount'){
         tds += '<td class="k-amount" contenteditable="true" data-k="'+k+'">'+esc(formatAmountStr(r[k]))+'</td>';
+      } else if(k === 'party'){
+        /* 发票相关方：购买方为我方→显示销售方（橙色）；悬停可查看双方名称 */
+        const p = partyOf(r);
+        tds += '<td class="k-party'+(p.role==='seller'?' k-seller':'')+'" contenteditable="true" data-k="party" data-role="'+p.role+'" title="购买方：'+esc(r.buyer||'—')+'&#10;销售方：'+esc(r.seller||'—')+'">'+esc(p.name)+'</td>';
       } else {
         tds += '<td contenteditable="true" data-k="'+k+'">'+esc(r[k])+'</td>';
       }
@@ -922,7 +964,12 @@ $('#tbody').addEventListener('input', function(e){
     let v = td.textContent.trim();
     /* 金额列：规范化后存储（全角，/。/全角数字自动转换，剔除千分位逗号），字符串处理不丢精度 */
     if(td.dataset.k === 'totalAmount') v = normalizeAmountInput(v);
-    rec[td.dataset.k] = v;
+    if(td.dataset.k === 'party'){
+      /* 相关方列：按渲染时锁定的角色写回对应字段（销售方行改 seller，购买方行改 buyer） */
+      if(td.dataset.role === 'seller'){ rec.seller = v; } else { rec.buyer = v; }
+    } else {
+      rec[td.dataset.k] = v;
+    }
     saveRecords();
   }
 });
@@ -1073,6 +1120,19 @@ function openInvoiceCheck(rec){
 /* ================= PDF 解析核心 =================
    pdfjsLib / jsQR 由上方动态加载器按 本地→jsDelivr→unpkg 择优加载，
    worker 已随所选 pdf 源自动推导设置（见 ensureLibs）。 */
+
+/* getDocument 统一参数：附加 CMap / 标准字体资源地址（由 ensureLibs 按实际 CDN 源推导），
+   缺失时 CID 中文字体加载失败、票面公司名称整块丢失 */
+function pdfjsParams(data){
+  const p = {data: data};
+  const cm = window.__pdfjsCMap;
+  if(cm){
+    p.cMapUrl = cm.cMapUrl;
+    p.cMapPacked = true;
+    p.standardFontDataUrl = cm.standardFontDataUrl;
+  }
+  return p;
+}
 
 /* --- 字段映射：数电发票二维码（样票实测：01,31,,号码,金额,YYYYMMDD,,校验段） --- */
 function parseQRText(text){
@@ -1297,7 +1357,7 @@ function decodeJPEG(raw){
 
 /* --- 路径B：pdf.js 渲染页面到 canvas 再解码 --- */
 async function extractQRByRender(fileBytes){
-  const doc = await pdfjsLib.getDocument({data: fileBytes}).promise;
+  const doc = await pdfjsLib.getDocument(pdfjsParams(fileBytes)).promise;
   for(let p=1;p<=doc.numPages;p++){
     const page = await doc.getPage(p);
     const vp = page.getViewport({scale: 2.5});
@@ -1313,49 +1373,105 @@ async function extractQRByRender(fileBytes){
   return null;
 }
 
-/* --- 文本层：购买方 + 交叉校验字段 --- */
-/* 数电票文本项是碎片化的，按坐标重建行来定位"购买方-名称" */
+/* --- 文本层：购买方/销售方 + 交叉校验字段 --- */
+/* 数电票文本项是碎片化的：标签与值可能各为整串，也可能被切成逐字碎片（甚至同一票里混用）。
+   按坐标重建行来定位“名称”标签：购买方块在票面左侧（x 小）、销售方块在右侧，
+   值取标签右侧间隙连续的片段拼接（相对关系策略，不依赖固定坐标）。 */
 async function extractTextFields(fileBytes){
-  const doc = await pdfjsLib.getDocument({data: fileBytes}).promise;
+  const doc = await pdfjsLib.getDocument(pdfjsParams(fileBytes)).promise;
   const page = await doc.getPage(1);
   const tc = await page.getTextContent();
   const items = [];
   for(const it of tc.items){
-    if(it.str && it.str.trim()) items.push({str: it.str, x: it.transform[4], y: it.transform[5]});
+    if(it.str && it.str.trim()) items.push({str: it.str.trim(), x: it.transform[4], y: it.transform[5], w: it.width || it.str.length * 9});
   }
-  /* 找"名称："标签（购买方区），再取同一行（y 相近）其右侧最近的文本 */
-  const labelIdx = [];
-  items.forEach(function(it, i){
-    if(/^名\s*称\s*[:：]?$/.test(it.str.trim())) labelIdx.push(i);
-  });
-  let buyer = '';
-  if(labelIdx.length){
-    /* 数电票布局：第一个"名称："是购买方，第二个是销售方；取第一个 */
-    const lab = items[labelIdx[0]];
-    let best = null, bestDist = Infinity;
-    for(const it of items){
-      if(it === lab) continue;
-      if(Math.abs(it.y - lab.y) > 3) continue;          /* 同一行 */
-      if(it.x <= lab.x + 10) continue;                   /* 在标签右侧 */
-      const d = it.x - lab.x;
-      if(d < bestDist){ bestDist = d; best = it; }
-    }
-    if(best) buyer = best.str.trim();
-  }
-  if(!buyer){
-    /* 降级：全文正则 */
+  const parties = extractPartiesByLayout(items);
+  let buyer = parties.buyer, seller = parties.seller;
+  if(!buyer || !seller){
+    /* 降级：全文正则（整串版式）：第一个“名称”是购买方，第二个是销售方 */
     const full = items.map(function(i){ return i.str; }).join('\n');
-    const m = full.match(/名\s*称\s*[:：]\s*([^\n]+)/);
-    if(m) buyer = m[1].trim();
+    const re = /名\s*称\s*[:：]\s*([^\n]+)/g;
+    let m2; const vals = [];
+    while((m2 = re.exec(full)) !== null) vals.push(m2[1].trim());
+    if(!buyer && vals[0]) buyer = vals[0];
+    if(!seller && vals[1]) seller = vals[1];
   }
   const full2 = items.map(function(i){ return i.str; }).join('\n');
   const mAmt = full2.match(/价税合计[（(]大写[）)]\s*[（(][^）)]*[）)]\s*[¥￥]?([\d,]+\.?\d*)/);
   const mDate = full2.match(/开票日期[：:]\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
   return {
     buyer: buyer,
+    seller: seller,
     textAmount: mAmt ? mAmt[1].replace(/,/g,'') : '',
     textDate: mDate ? (mDate[1]+'-'+pad2(mDate[2])+'-'+pad2(mDate[3])) : ''
   };
+}
+
+/* 按票面布局提取购买方/销售方名称（兼容三类版式）：
+   ① 标签+值均为整串；② 值为整串、标签碎片化；③ 标签与值逐字全碎片。
+   做法：y 聚类成行（容差 4pt，竖排“购/买/方/信/息”字间距 10pt 不会误并）→
+   行内按 x 排序拼行串 → 找行内所有“名称”标签（碎片化也能拼出）→
+   每个标签取其右侧（允许小幅重叠）、到下一标签起点之间且 x 间隙连续的
+   片段作为值（间隙超 25pt 即止，竖排字与相邻块天然隔断）。最后按标签
+   x 升序：第一个是购买方（左侧块），第二个是销售方（右侧块）。 */
+function extractPartiesByLayout(items){
+  const res = {buyer:'', seller:''};
+  if(!items.length) return res;
+  /* 1) 行聚类 */
+  const rows = [];
+  items.slice().sort(function(a, b){ return b.y - a.y || a.x - b.x; }).forEach(function(it){
+    let best = null;
+    for(const r of rows){
+      const dy = Math.abs(r.y - it.y);
+      if(dy <= 4 && (!best || dy < Math.abs(best.y - it.y))) best = r;
+    }
+    if(best){ best.items.push(it); }
+    else rows.push({y: it.y, items: [it]});
+  });
+  /* 2) 逐行找“名称”标签并取值 */
+  const found = [];
+  for(const row of rows){
+    const its = row.items.slice().sort(function(a, b){ return a.x - b.x; });
+    let lineStr = '';
+    const spans = its.map(function(it){
+      const sp = {s: lineStr.length, e: lineStr.length + it.str.length, it: it};
+      lineStr += it.str;
+      return sp;
+    });
+    const labels = [];
+    const re = /名\s*称\s*[：:]/g;
+    let m;
+    while((m = re.exec(lineStr)) !== null){
+      const fs = m.index, le = m.index + m[0].length - 1;
+      let startSpan = null, endSpan = null;
+      for(const sp of spans){
+        if(fs >= sp.s && fs < sp.e) startSpan = sp;
+        if(le >= sp.s && le < sp.e) endSpan = sp;
+      }
+      if(startSpan && endSpan) labels.push({startX: startSpan.it.x, endX: endSpan.it.x + endSpan.it.w});
+    }
+    for(let li = 0; li < labels.length; li++){
+      const lb = labels[li];
+      const nextStart = li + 1 < labels.length ? labels[li+1].startX - 6 : Infinity;
+      let val = '';
+      let prevEnd = lb.endX;
+      for(const sp of spans){
+        const it = sp.it;
+        if(it.x < lb.endX - 6) continue;        /* 标签自身及其左侧（含竖排块首字）跳过 */
+        if(it.x >= nextStart) break;            /* 下一“名称”标签起点：本值到此为止 */
+        if(val && it.x - prevEnd > 25) break;   /* 间隙过大：值结束（其后是另一块/边角信息） */
+        val += it.str;
+        prevEnd = Math.max(prevEnd, it.x + it.w);
+      }
+      val = val.replace(/^[\s:：]+/, '').replace(/[\s]+$/, '');
+      if(val) found.push({labelX: lb.startX, value: val});
+    }
+  }
+  /* 3) 按标签 x 升序：左=购买方，右=销售方 */
+  found.sort(function(a, b){ return a.labelX - b.labelX; });
+  if(found[0]) res.buyer = found[0].value;
+  if(found[1]) res.seller = found[1].value;
+  return res;
 }
 
 /* ================= 解析队列 ================= */
@@ -1381,7 +1497,7 @@ async function parseQueue(files){
 }
 async function parseOne(file){
   const id = uid();
-  const rec = {id:id, fileName:file.name, invoiceDate:'', invoiceCode:'', invoiceNumber:'', totalAmount:'', buyer:'', status:'pending', dup:false, _new:true};
+  const rec = {id:id, fileName:file.name, invoiceDate:'', invoiceCode:'', invoiceNumber:'', totalAmount:'', buyer:'', seller:'', status:'pending', dup:false, _new:true};
   records.push(rec);
   render();
   try{
@@ -1391,10 +1507,11 @@ async function parseOne(file){
     if(!qrText){
       try{ qrText = await extractQRByRender(new Uint8Array(buf.slice(0))); }catch(e){}
     }
-    /* 文本层：购买方 + 备用字段 */
-    let tf = {buyer:'', textAmount:'', textDate:''};
+    /* 文本层：购买方/销售方 + 备用字段 */
+    let tf = {buyer:'', seller:'', textAmount:'', textDate:''};
     try{ tf = await extractTextFields(new Uint8Array(buf.slice(0))); }catch(e){}
     if(tf.buyer) rec.buyer = tf.buyer;
+    if(tf.seller) rec.seller = tf.seller;
     if(tf.textDate && !rec.invoiceDate) rec.invoiceDate = tf.textDate;
     if(tf.textAmount && !rec.totalAmount) rec.totalAmount = tf.textAmount;
     if(qrText){
@@ -1435,9 +1552,9 @@ function csvTextNum(v){
 }
 function exportCSV(){
   if(!records.length){ toast('暂无数据可导出','warn'); return; }
-  const HEADERS = ['序号','1.发票日期','2.发票代码','3.发票号码','4.价税合计','5.发票购买方','6.PDF文件名','解析状态'];
+  const HEADERS = ['序号','1.发票日期','2.发票代码','3.发票号码','4.价税合计','5.发票相关方（购买方/销售方）','6.PDF文件名','解析状态'];
   const rows = records.map(function(r,i){
-    return [i+1, r.invoiceDate, csvTextNum(r.invoiceCode), csvTextNum(r.invoiceNumber), r.totalAmount, r.buyer, r.fileName, STATUS_TEXT[r.status]||''];
+    return [i+1, r.invoiceDate, csvTextNum(r.invoiceCode), csvTextNum(r.invoiceNumber), r.totalAmount, partyOf(r).name, r.fileName, STATUS_TEXT[r.status]||''];
   });
   const lines = [HEADERS].concat(rows).map(function(row){
     return row.map(function(v){
@@ -1468,15 +1585,130 @@ dz.addEventListener('dragleave', function(){ dz.classList.remove('dragover'); })
 dz.addEventListener('drop', function(e){
   e.preventDefault();
   dz.classList.remove('dragover');
-  const fs = Array.prototype.slice.call(e.dataTransfer.files).filter(function(f){ return /\.pdf$/i.test(f.name); });
-  if(!fs.length){ toast('请拖入 PDF 文件','warn'); return; }
-  parseQueue(fs);
+  /* 关键：事件内必须同步取全两套数据——
+     ① dataTransfer.files：散文件 File 对象（同步快照，任何环境都可靠，旧版即此方案）；
+     ② items→webkitGetAsEntry() 的 entries：用于识别拖入的“文件夹”。
+     entry 的异步读取（file()/readEntries()）在事件处理器返回后可能被浏览器清退失效
+     （file:// 直开页面时尤为明显），故散文件一律用 ①，只有目录才走 entry 路径。 */
+  const files = Array.prototype.slice.call(e.dataTransfer.files);
+  const items = e.dataTransfer.items ? Array.prototype.slice.call(e.dataTransfer.items) : [];
+  const entries = [];
+  for(const it of items){
+    if(it.kind !== 'file') continue;
+    const en = (typeof it.webkitGetAsEntry === 'function') ? it.webkitGetAsEntry() : null;
+    if(en) entries.push(en);
+  }
+  const loosePdfs = files.filter(function(f){ return /\.pdf$/i.test(f.name); });
+  const hasDir = entries.some(function(en){ return en && en.isDirectory; });
+  if(hasDir){
+    handleDropEntries(entries, loosePdfs);
+  } else {
+    if(!loosePdfs.length){ toast('请拖入 PDF 文件','warn'); return; }
+    parseQueue(loosePdfs);
+  }
 });
+
+/* ---- 文件夹拖入支持：递归扫描拖入项（文件/文件夹）及其子文件夹 ---- */
+/* readEntries 单次最多返回 100 条，必须循环调用直到返回空数组才算读完目录。
+   任一批次返回错误即标记 failed（目录条目已失效/无权限），供上层提示改用「选择文件夹」按钮。 */
+function readAllDirEntries(reader){
+  return new Promise(function(resolve){
+    const all = [];
+    let failed = false;
+    (function next(){
+      reader.readEntries(function(batch){
+        if(!batch.length){ resolve({entries: all, failed: failed}); return; }
+        for(const en of batch) all.push(en);
+        next();
+      }, function(){
+        failed = true;
+        resolve({entries: all, failed: failed});
+      });
+    })();
+  });
+}
+/* 从同步已收集的散文件里按名取一个未用过的 File（避免依赖 entry.file() 异步回调） */
+function takeLooseFile(loosePdfs, used, name){
+  for(let i = 0; i < loosePdfs.length; i++){
+    if(!used[i] && loosePdfs[i].name === name){ used[i] = true; return loosePdfs[i]; }
+  }
+  return null;
+}
+/* 取单个 entry（文件或目录）下的所有文件；目录递归展开。
+   返回 {files, anyError}：anyError 表示该 entry 的异步读取不可用（file() 或 readEntries 失败）。 */
+async function collectEntryFiles(entry, loosePdfs, used){
+  if(!entry) return {files: [], anyError: false};
+  if(entry.isFile){
+    /* 优先用事件内同步拿到的 File（可靠）；匹配不到再走 entry.file()（部分环境会失败） */
+    const hit = takeLooseFile(loosePdfs, used, entry.name);
+    if(hit) return {files: [hit], anyError: false};
+    return await new Promise(function(resolve){
+      try{
+        entry.file(function(f){ resolve({files: [f], anyError: false}); },
+                    function(){ resolve({files: [], anyError: true}); });
+      }catch(e){ resolve({files: [], anyError: true}); }
+    });
+  }
+  if(entry.isDirectory){
+    let out = [], anyError = false;
+    let reader = null;
+    try{ reader = entry.createReader(); }catch(e){ return {files: [], anyError: true}; }
+    const got = await readAllDirEntries(reader);
+    if(got.failed) anyError = true;
+    for(const k of got.entries){
+      const sub = await collectEntryFiles(k, loosePdfs, used);
+      if(sub.anyError) anyError = true;
+      out = out.concat(sub.files);
+    }
+    return {files: out, anyError: anyError};
+  }
+  return {files: [], anyError: false};
+}
+/* 拖入项统一入口：散 PDF 直接用同步 File；目录走 entry 递归。
+   目录读取不可用（浏览器安全限制）时明确引导改用「选择文件夹」按钮。 */
+async function handleDropEntries(entries, loosePdfs){
+  loosePdfs = loosePdfs || [];
+  const used = [];
+  let pdfs = [], hasDir = false, readFailed = false;
+  for(const en of entries){
+    if(!en) continue;
+    if(en.isDirectory) hasDir = true;
+    try{
+      const got = await collectEntryFiles(en, loosePdfs, used);
+      if(got.anyError) readFailed = true;
+      for(const f of got.files){ if(/\.pdf$/i.test(f.name)) pdfs.push(f); }
+    }catch(e){ readFailed = true; }
+  }
+  if(!pdfs.length){
+    if(readFailed && hasDir){
+      toast('此浏览器不允许拖拽读取文件夹，请改点「选择文件夹」按钮', 'warn');
+    } else {
+      toast(hasDir ? '文件夹里没有找到 PDF 文件' : '请拖入 PDF 文件', 'warn');
+    }
+    return;
+  }
+  if(readFailed){
+    toast('部分内容无法读取（已解析 ' + pdfs.length + ' 个 PDF），不完整请改点「选择文件夹」按钮', 'warn');
+  } else if(hasDir){
+    toast('文件夹扫描完成，共 ' + pdfs.length + ' 个 PDF');
+  }
+  parseQueue(pdfs);
+}
 $('#fileInput').addEventListener('change', function(e){
   parseQueue(Array.prototype.slice.call(e.target.files));
   e.target.value = '';
 });
 $('#btnSelect').addEventListener('click', function(){ $('#fileInput').click(); });
+/* 「选择文件夹」：走系统目录选择对话框（webkitdirectory），同步拿到全部文件，
+   不受拖拽 entry 失效限制——作为拖拽文件夹在受限环境下的可靠兜底 */
+$('#dirInput').addEventListener('change', function(e){
+  const fs = Array.prototype.slice.call(e.target.files).filter(function(f){ return /\.pdf$/i.test(f.name); });
+  if(!fs.length){ toast('文件夹里没有找到 PDF 文件','warn'); e.target.value = ''; return; }
+  toast('文件夹扫描完成，共 ' + fs.length + ' 个 PDF');
+  parseQueue(fs);
+  e.target.value = '';
+});
+$('#btnSelectDir').addEventListener('click', function(){ $('#dirInput').click(); });
 
 /* ================= 在线 Excel 式框选与复制 ================= */
 /* 用法：在数据单元格上按住左键拖动框选（或点起始格再 Shift+点结束格），
