@@ -280,11 +280,12 @@ td.k-seller{color:var(--seller);}
         <div class="h-t">到税务局网站查验真伪</div>
         <ol>
           <li>（首次只需一次）先安装浏览器扩展 <b>Tampermonkey（篡改猴）</b>：从<a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">官方网站</a>下载安装，或在 Chrome / Edge 浏览器的「扩展应用商店」里搜索 Tampermonkey 安装</li>
-          <li>点顶部<b>「查验脚本」</b>按钮 → 一键复制源码 → 点浏览器工具栏的篡改猴图标 →「添加新脚本」→ 粘贴源码 → 按 Ctrl+S 保存</li>
+          <li>点顶部<b>「查验脚本」</b>按钮 → 一键复制源码 → 点浏览器工具栏的篡改猴图标 →「添加新脚本」→ 粘贴源码 → 按 Ctrl+S 保存（装过旧版脚本的：打开旧脚本全选删除后粘贴新源码保存即升级）</li>
           <li>点表格里的<b>「查验」</b>：自动打开发票查验平台，并填好号码、日期、金额</li>
           <li>输入图片验证码，点「查验」看结果</li>
+          <li>结果出来后，弹窗「打印」按钮左侧会自动出现<b>「一键截图」</b>按钮：点击把发票详情（含官方水印）保存为 PNG，文件名自动带上发票号码、购买方、价税合计</li>
         </ol>
-        <div class="h-note">没装篡改猴脚本也能查验：点「查验」仍会打开发票查验平台，只是需要手工填写发票信息。</div>
+        <div class="h-note">没装篡改猴脚本也能查验：点「查验」仍会打开发票查验平台，只是需要手工填写发票信息，也没有一键截图按钮。</div>
       </div>
       <div class="h-sec">
         <div class="h-t">数据安全</div>
@@ -312,7 +313,7 @@ td.k-seller{color:var(--seller);}
 <div class="modal-mask" id="scriptMask">
   <div class="modal script-modal">
     <h3>发票查验助手 · 篡改猴脚本源码</h3>
-    <div class="script-sub">将下方源码全文复制到 Tampermonkey（篡改猴）新建脚本中保存即可使用；<a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">如何使用Tampermonkey（篡改猴）</a></div>
+    <div class="script-sub">将下方源码全文复制到 Tampermonkey（篡改猴）新建脚本中保存即可使用；已装过旧版脚本的：打开旧脚本全选删除后粘贴下方源码保存即完成升级；<a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">如何使用Tampermonkey（篡改猴）</a></div>
     <div class="script-body"><pre id="scriptPre"></pre></div>
     <div class="modal-actions">
       <span class="copy-hint" id="copyHint">已复制到剪贴板</span>
@@ -322,15 +323,16 @@ td.k-seller{color:var(--seller);}
   </div>
 </div>
 
-<!-- 油猴脚本源码（与 invoice-check-helper.user.js 同源，改脚本时两处同步） -->
+<!-- 油猴脚本源码（与 发票查验助手_2.2.2.user.js 同源，改脚本时两处同步） -->
 <script type="text/plain" id="scriptTextSource">
 // ==UserScript==
 // @name         发票查验助手（PDF电子发票解析工具配套）
 // @namespace    pdf-qr-tool
-// @version      2.1.0
-// @description  配合「PDF电子发票解析工具」：自动读取 URL #qr 参数，填写发票查验平台的发票号码、价税合计，并模拟日历点选填写开票日期；人工仅需输入验证码后点击查验。
+// @version      2.2.2
+// @description  配合「PDF电子发票解析工具」：自动读取 URL #qr 参数，填写发票查验平台的发票号码、价税合计，并模拟日历点选填写开票日期；人工仅需输入验证码后点击查验；查验结果出现后悬浮"一键截图"按钮，将发票详情（含官方水印）保存为 PNG，文件名 dzfp_{发票号码}_{购买方}_{价税合计}-发票查验截图.png。
 // @author       TeleAgent
 // @match        https://inv-veri.chinatax.gov.cn/fpcygzfw/national-invoice-check*
+// @require      https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
@@ -417,6 +419,227 @@ td.k-seller{color:var(--seller);}
       setTimeout(function(){ d.remove(); }, 6000);
     }catch(e){}
   }
+
+  /* ================================================================
+     v2.2.0 新增：一键截图（查验结果弹窗 → PNG 保存）
+     - 截图目标：弹窗内容卡片 .t-dialog__body（含官方水印 .shuiyin、查验状态行、
+       票面、特别提示，及自带 padding 的四周白边；经唯一的 .invoice-dialog 向上定位，
+       因页面上存在多个 .t-dialog__body）
+     - 悬浮按钮挂在 document.body 上（fixed 定位），不在截图目标子树内，
+       html2canvas 只克隆目标元素子树渲染，因此按钮不会入镜
+     - 按钮位置：跟随原生"打印"按钮左侧（间隔 8px、同样大小、颜色略淡）
+     - 保存方式：a[download] 直接触发浏览器下载，不弹窗
+     - 文件名：dzfp_{发票号码}_{购买方}_{价税合计}-发票查验截图.png
+       号码/金额优先取 URL #qr 参数，购买方固定从票面 DOM 提取（字面购买方），
+       URL 缺失时号码/金额回退到票面文本提取
+     ================================================================ */
+
+  /* ---------- 文件名安全处理：过滤 Windows 非法字符 ---------- */
+  function sanitizeFilename(s){
+    return String(s || '')
+      .replace(/[\\\/:*?"<>|\r\n\t]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[.\s]+$/, '');
+  }
+
+  /* ---------- DOM 兜底提取：发票号码（票面"发票号码："） ---------- */
+  function extractInvoiceNumber(){
+    const info = document.querySelector('.invoice-info');
+    if(!info) return '';
+    const m = info.textContent.match(/发票号码[：:]\s*([0-9A-Za-z]{6,})/);
+    return m ? m[1] : '';
+  }
+
+  /* ---------- DOM 提取：票面字面购买方 ----------
+     真实结构："购买方信息"是叶子 span（外面还套了只含它的 span），
+     "名称：公司名"是 <p class="invoice-main__header--name">（label 与值分离，
+     但 p.textContent 拼合完整）。故从标签向上逐层找，直到出现"名称："开头的 p；
+     购买方块在销售方之前（DOM 顺序），向上层数有限不会串块 */
+  function extractBuyer(){
+    const info = document.querySelector('.invoice-info');
+    if(!info) return '';
+    const label = Array.from(info.querySelectorAll('*')).find(function(el){
+      return el.children.length === 0 && el.textContent.trim() === '购买方信息';
+    });
+    if(!label){
+      /* 兜底：票面第一个"名称："段落即购买方 */
+      const p1 = Array.from(info.querySelectorAll('p')).find(function(p){
+        return /^名称[：:]/.test(p.textContent.trim());
+      });
+      return p1 ? p1.textContent.replace(/^名称[：:]\s*/, '').trim() : '';
+    }
+    let blk = label;
+    for(let i = 0; i < 6 && blk && blk !== info; i++){
+      blk = blk.parentElement;
+      if(!blk) break;
+      const ps = Array.from(blk.querySelectorAll('p'));
+      const nameP = ps.find(function(p){ return /^名称[：:]/.test(p.textContent.trim()); });
+      if(nameP){
+        return nameP.textContent.replace(/^名称[：:]\s*/, '').trim();
+      }
+    }
+    return '';
+  }
+
+  /* ---------- DOM 兜底提取：价税合计（票面"（小写）¥xxx"） ---------- */
+  function extractAmount(){
+    const info = document.querySelector('.invoice-info');
+    if(!info) return '';
+    const m = info.textContent.match(/[（(]\s*小写\s*[）)]\s*[¥￥]([0-9,\.]+)/);
+    return m ? m[1].replace(/,/g, '') : '';
+  }
+
+  /* ---------- 组装文件名 ---------- */
+  function buildFilename(){
+    const q   = parseQR() || {};
+    const num   = q.number || extractInvoiceNumber();
+    const amt   = q.amount || extractAmount();
+    const buyer = extractBuyer();          /* 购买方固定取票面字面，不用"相关方" */
+    const parts = [num, buyer, amt].map(sanitizeFilename).filter(Boolean);
+    return 'dzfp_' + parts.join('_') + '-发票查验截图.png';
+  }
+
+  /* ---------- blob 触发下载（a[download]，文件名由 download 属性指定） ---------- */
+  function downloadBlob(blob, filename){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+  }
+
+  /* ---------- 定位弹窗内的原生"打印"按钮 ---------- */
+  function findPrintButton(){
+    const box = document.querySelector('.invoice-check-status');
+    if(!box) return null;
+    return Array.from(box.querySelectorAll('button')).find(function(b){
+      return b.textContent.indexOf('打印') > -1;
+    }) || null;
+  }
+
+  /* ---------- 悬浮按钮状态 ---------- */
+  const snapBtn = { el: null, timer: null };
+
+  function createSnapButton(){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = '一键截图';
+    /* 与原生"打印"同款大小/字号，颜色略淡（原生为 rgb(1,82,147)） */
+    b.style.cssText =
+      'position:fixed;z-index:30000;display:none;border:none;cursor:pointer;'
+      + 'background:#2E75B6;color:#fff;font-size:16px;'
+      + 'font-family:system-ui,"Microsoft YaHei",sans-serif;'
+      + 'border-radius:3px;padding:0;line-height:normal;'
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.18);';
+    b.addEventListener('mouseenter', function(){ b.style.background = '#2565A0'; });
+    b.addEventListener('mouseleave', function(){ b.style.background = '#2E75B6'; });
+    b.addEventListener('click', captureAndSave);
+    document.body.appendChild(b);
+    return b;
+  }
+
+  /* 同步按钮位置：贴着"打印"按钮左侧（同样大小、间隔 8px） */
+  function syncSnapButton(){
+    if(!snapBtn.el) return;
+    const print = findPrintButton();
+    if(!print || print.getBoundingClientRect().width <= 0){
+      hideSnapButton();
+      return;
+    }
+    const r = print.getBoundingClientRect();
+    snapBtn.el.style.display = 'block';
+    snapBtn.el.style.width  = r.width  + 'px';
+    snapBtn.el.style.height = r.height + 'px';
+    snapBtn.el.style.top    = r.top    + 'px';
+    const left = r.left - r.width - 8;
+    snapBtn.el.style.left   = Math.max(8, left) + 'px';
+  }
+
+  function showSnapButton(){
+    if(!snapBtn.el) snapBtn.el = createSnapButton();
+    syncSnapButton();
+    /* 兜底轮询：弹窗内部滚动/窗口变化时保持贴随"打印"按钮 */
+    if(!snapBtn.timer){
+      snapBtn.timer = setInterval(syncSnapButton, 300);
+    }
+  }
+
+  function hideSnapButton(){
+    if(snapBtn.el) snapBtn.el.style.display = 'none';
+    if(snapBtn.timer){ clearInterval(snapBtn.timer); snapBtn.timer = null; }
+  }
+
+  /* ---------- 等待界面绘制上屏 ----------
+     双 rAF 确保文字变化真正画到屏幕；后台标签页 rAF 会被节流甚至冻结，
+     加 500ms 保底防卡死（前台场景 rAF 约 32ms 就先完成，保底不生效） */
+  function nextPaint(){
+    return Promise.race([
+      new Promise(function(r){ requestAnimationFrame(function(){ requestAnimationFrame(r); }); }),
+      sleep(500)
+    ]);
+  }
+
+  /* ---------- 截图主流程（两段式反馈） ----------
+     点击瞬间变"已点击"→ 等两帧确保绘制上屏 → 变"截图中…"→ 截图。
+     若不等两帧，html2canvas 同步克隆 DOM 阶段会阻塞主线程，
+     任何文字变化都画不上屏，用户会感觉点击无响应几秒 */
+  async function captureAndSave(){
+    const b = snapBtn.el;
+    /* 目标：弹窗内容卡片 .t-dialog__body（自带 padding 16px 20px，截图含一圈白边，宽 1158，与手动截图构图一致）。
+       注意：页面存在多个 .t-dialog（含隐藏的"提示"确认框），直接 querySelector('.t-dialog__body')
+       会命中第一个隐藏弹窗，故必须经由唯一的 .invoice-dialog 向上定位 */
+    const anchor = document.querySelector('.invoice-dialog');
+    const target = anchor ? anchor.closest('.t-dialog__body') : null;
+    if(!target){ showToast('未找到发票详情区域'); return; }
+    if(typeof html2canvas === 'undefined'){
+      showToast('截图库未加载成功，请检查网络后刷新页面重试');
+      return;
+    }
+    /* 第一段：立即反馈"已点击" */
+    if(b){ b.textContent = '已点击'; b.disabled = true; b.style.opacity = '.7'; }
+    await nextPaint();
+    /* 第二段：进入截图状态（同样等绘制上屏后再开始阻塞主线程） */
+    if(b){ b.textContent = '截图中…'; }
+    await nextPaint();
+    try{
+      const canvas = await html2canvas(target, {
+        backgroundColor : '#ffffff',   /* 弹窗底透明，垫白底（含四周白边） */
+        scale           : 1,            /* 1:1 自然尺寸，与手动截图工具在 100% 缩放下像素一致，PNG 约 270KB */
+        useCORS         : true,
+        logging         : false
+      });
+      const blob = await new Promise(function(res){ canvas.toBlob(res, 'image/png'); });
+      if(!blob) throw new Error('画布导出 PNG 失败');
+      const name = buildFilename();
+      downloadBlob(blob, name);
+      showToast('截图已保存：' + name);
+    }catch(e){
+      showToast('截图失败：' + (e && e.message ? e.message : '未知错误'));
+    }finally{
+      if(b){ b.textContent = '一键截图'; b.disabled = false; b.style.opacity = '1'; }
+    }
+  }
+
+  /* ---------- 监听查验结果出现/消失（rAF 防抖） ---------- */
+  let snapMoPending = false;
+  const snapObserver = new MutationObserver(function(){
+    if(snapMoPending) return;
+    snapMoPending = true;
+    requestAnimationFrame(function(){
+      snapMoPending = false;
+      const info = document.querySelector('.invoice-info');
+      const print = findPrintButton();
+      if(info && print) showSnapButton();
+      else hideSnapButton();
+    });
+  });
+  snapObserver.observe(document.body, { childList:true, subtree:true });
+  window.addEventListener('resize', syncSnapButton);
+  window.addEventListener('scroll',  syncSnapButton, true); /* capture：捕获弹窗内部滚动 */
 
   /* ================================================================
      开票日期：合成点击走日历面板（readonly DatePicker 无法直接赋值）
@@ -610,25 +833,33 @@ PDF电子发票解析工具 — 使用说明
 · 重复      ：同一发票号码出现多次，行底色标紫提醒，可通过
               "删除重复"按钮批量清理
 
-五、一键查验（配合油猴脚本自动填表）
+五、一键查验（配合油猴脚本自动填表 + 一键截图）
 ------------
 使用流程：
 1. （首次使用需一次性配置）安装 Tampermonkey 浏览器扩展，
-   新建脚本，粘贴 invoice-check-helper.user.js 的全部内容并保存
+   新建脚本，粘贴脚本源码的全部内容并保存
    【最方便的方式】点击网页顶部「查验脚本」按钮 → 弹窗内
    "一键复制源码" → 到 Tampermonkey 新建脚本中粘贴保存即可，
-   无需手动打开 js 文件
+   无需手动打开 js 文件（当前版本 v2.2.2；装过旧版脚本的，
+   打开旧脚本全选删除后粘贴新源码保存即完成升级）
 2. 在表格中点击某行的"查验"按钮 → 自动打开发票查验平台新标签页
 3. 油猴脚本自动填好 发票号码 / 开票日期 / 价税合计 三项
 4. 人工输入图片验证码 → 点击"查验"按钮 → 查看结果
+5. 查验结果出来后，弹窗内"打印"按钮左侧自动出现「一键截图」
+   按钮：点击后把发票详情弹窗（含官方水印、票面、特别提示）
+   保存为 PNG 图片并自动下载，文件名
+   dzfp_{发票号码}_{购买方}_{价税合计}-发票查验截图.png
 
 说明：
 · 传递原理：发票信息编码在网址 # 号之后（不会发送给税务局服务器），
   油猴脚本读取后自动填表
 · 验证码无法自动识别（平台防自动化设计），必须人工输入
+· 一键截图：号码/金额取自工具传递的参数，购买方固定从票面提取
+  （票面字面的购买方名称）；截图经浏览器直接下载，不弹对话框；
+  截图库 html2canvas 由脚本自动从 CDN 加载，需联网
 · 未安装油猴脚本时："查验"按钮仍会打开发票查验平台，
-  但不会自动填写，需手工输入发票信息
-· 油猴脚本文件 invoice-check-helper.user.js 在工具文件夹内，
+  但不会自动填写，需手工输入发票信息（也没有一键截图按钮）
+· 油猴脚本文件 发票查验助手_2.2.2.user.js 在工具文件夹内，
   也可在 Tampermonkey 中从文件导入
 
 · 网页顶部有「使用说明」按钮，点击可直接查看本说明，无需打开 txt 文件
@@ -1100,7 +1331,7 @@ function removeUndoEntry(entry){
 
 /* ================= 发票查验（跳转 + 携带参数） ================= */
 /* 点击"查验"→ 新标签打开查验平台，把发票信息编码进 URL 的 # 锚点；
-   配合油猴脚本（invoice-check-helper）读取并自动填表。
+   配合油猴脚本（发票查验助手）读取并自动填表。
    注意：为了兼容旧版票（12位代码+8位号码）与数电票（20位号码），
    统一按 号码|日期|价税合计 传递；发票代码若存在也一并带上（代码可辅助定位）。 */
 function openInvoiceCheck(rec){
