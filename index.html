@@ -283,9 +283,9 @@ td.k-seller{color:var(--seller);}
           <li>点顶部<b>「查验脚本」</b>按钮 → 一键复制源码 → 点浏览器工具栏的篡改猴图标 →「添加新脚本」→ 粘贴源码 → 按 Ctrl+S 保存（装过旧版脚本的：打开旧脚本全选删除后粘贴新源码保存即升级）</li>
           <li>点表格里的<b>「查验」</b>：自动打开发票查验平台，并填好号码、日期、金额</li>
           <li>输入图片验证码，点「查验」看结果</li>
-          <li>结果出来后，弹窗「打印」按钮左侧会自动出现<b>「一键截图」</b>按钮：点击把发票详情（含官方水印）保存为 PNG，文件名自动带上发票号码、购买方、价税合计</li>
+          <li>结果出来后，弹窗「打印」按钮左侧会自动出现<b>「一键截图」</b>和<b>「一键多页截图」</b>两个按钮：「一键截图」把发票详情（含官方水印）保存为单张 PNG；「一键多页截图」借用平台“打印”的排版引擎，按 A4 纵向分页输出 PNG（明细行全部展开、无水印、多页带页码），打印出来就是标准 A4 版式</li>
         </ol>
-        <div class="h-note">没装篡改猴脚本也能查验：点「查验」仍会打开发票查验平台，只是需要手工填写发票信息，也没有一键截图按钮。</div>
+        <div class="h-note">没装篡改猴脚本也能查验：点「查验」仍会打开发票查验平台，只是需要手工填写发票信息，也没有一键截图/一键多页截图按钮。</div>
       </div>
       <div class="h-sec">
         <div class="h-t">数据安全</div>
@@ -323,13 +323,13 @@ td.k-seller{color:var(--seller);}
   </div>
 </div>
 
-<!-- 油猴脚本源码（与 发票查验助手_2.2.2.user.js 同源，改脚本时两处同步） -->
+<!-- 油猴脚本源码（与 发票查验助手_2.4.1.user.js 同源，改脚本时两处同步） -->
 <script type="text/plain" id="scriptTextSource">
 // ==UserScript==
 // @name         发票查验助手（PDF电子发票解析工具配套）
 // @namespace    pdf-qr-tool
-// @version      2.2.2
-// @description  配合「PDF电子发票解析工具」：自动读取 URL #qr 参数，填写发票查验平台的发票号码、价税合计，并模拟日历点选填写开票日期；人工仅需输入验证码后点击查验；查验结果出现后悬浮"一键截图"按钮，将发票详情（含官方水印）保存为 PNG，文件名 dzfp_{发票号码}_{购买方}_{价税合计}-发票查验截图.png。
+// @version      2.4.1
+// @description  配合「PDF电子发票解析工具」：自动读取 URL #qr 参数，填写发票查验平台的发票号码、价税合计，并模拟日历点选填写开票日期；人工仅需输入验证码后点击查验；查验结果出现后悬浮"一键截图"与"一键多页截图"按钮：截图保存弹窗 PNG（含水印）；多页截图劫持原生打印的重排版引擎（明细全展开），按 A4 纵向 300DPI 分页输出 PNG，多页带页码后缀。
 // @author       TeleAgent
 // @match        https://inv-veri.chinatax.gov.cn/fpcygzfw/national-invoice-check*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js
@@ -490,14 +490,22 @@ td.k-seller{color:var(--seller);}
     return m ? m[1].replace(/,/g, '') : '';
   }
 
-  /* ---------- 组装文件名 ---------- */
+  /* ---------- 文件名组装 ----------
+     公共前缀（不含尾巴）：dzfp_{号码}_{购买方}_{金额}，两种输出共用 */
   function buildFilename(){
+    return buildFilenameBase() + '-发票查验截图.png';
+  }
+  function buildFilenameBase(){
     const q   = parseQR() || {};
     const num   = q.number || extractInvoiceNumber();
     const amt   = q.amount || extractAmount();
     const buyer = extractBuyer();          /* 购买方固定取票面字面，不用"相关方" */
     const parts = [num, buyer, amt].map(sanitizeFilename).filter(Boolean);
-    return 'dzfp_' + parts.join('_') + '-发票查验截图.png';
+    return 'dzfp_' + parts.join('_');
+  }
+  /* 多页 PNG：dzfp_..._发票查验截图多页{页码}.png，仅多页带页码，单页无页码 */
+  function buildPageFilename(page, total){
+    return buildFilenameBase() + '-发票查验截图多页' + (total > 1 ? page : '') + '.png';
   }
 
   /* ---------- blob 触发下载（a[download]，文件名由 download 属性指定） ---------- */
@@ -521,28 +529,40 @@ td.k-seller{color:var(--seller);}
     }) || null;
   }
 
-  /* ---------- 悬浮按钮状态 ---------- */
+  /* ---------- 悬浮按钮状态（双按钮：截图 + PDF） ---------- */
   const snapBtn = { el: null, timer: null };
+  const pdfBtn  = { el: null };
 
-  function createSnapButton(){
+  /* 按钮通用样式：与原生"打印"同款大小/字号，颜色略淡（原生为 rgb(1,82,147)） */
+  const BTN_STYLE =
+    'position:fixed;z-index:30000;display:none;border:none;cursor:pointer;'
+    + 'background:#2E75B6;color:#fff;font-size:16px;'
+    + 'font-family:system-ui,"Microsoft YaHei",sans-serif;'
+    + 'border-radius:3px;padding:0;line-height:normal;'
+    + 'box-shadow:0 2px 8px rgba(0,0,0,.18);';
+
+  function createButton(text, handler, fontSize){
     const b = document.createElement('button');
     b.type = 'button';
-    b.textContent = '一键截图';
-    /* 与原生"打印"同款大小/字号，颜色略淡（原生为 rgb(1,82,147)） */
-    b.style.cssText =
-      'position:fixed;z-index:30000;display:none;border:none;cursor:pointer;'
-      + 'background:#2E75B6;color:#fff;font-size:16px;'
-      + 'font-family:system-ui,"Microsoft YaHei",sans-serif;'
-      + 'border-radius:3px;padding:0;line-height:normal;'
-      + 'box-shadow:0 2px 8px rgba(0,0,0,.18);';
+    b.textContent = text;
+    b.style.cssText = BTN_STYLE + (fontSize ? 'font-size:' + fontSize + 'px;' : '');
     b.addEventListener('mouseenter', function(){ b.style.background = '#2565A0'; });
     b.addEventListener('mouseleave', function(){ b.style.background = '#2E75B6'; });
-    b.addEventListener('click', captureAndSave);
+    b.addEventListener('click', handler);
     document.body.appendChild(b);
     return b;
   }
 
-  /* 同步按钮位置：贴着"打印"按钮左侧（同样大小、间隔 8px） */
+  function createSnapButton(){
+    return createButton('一键截图', captureAndSave);
+  }
+
+  function createPdfButton(){
+    /* 6 字按钮，字号 15px 避免溢出（宽度与"打印"同款 112px） */
+    return createButton('一键多页截图', captureAndSavePages, 15);
+  }
+
+  /* 同步双按钮位置：PDF 在截图左侧，截图贴"打印"左侧（均同样大小、间隔 8px） */
   function syncSnapButton(){
     if(!snapBtn.el) return;
     const print = findPrintButton();
@@ -551,16 +571,27 @@ td.k-seller{color:var(--seller);}
       return;
     }
     const r = print.getBoundingClientRect();
+    /* 截图按钮 */
     snapBtn.el.style.display = 'block';
     snapBtn.el.style.width  = r.width  + 'px';
     snapBtn.el.style.height = r.height + 'px';
     snapBtn.el.style.top    = r.top    + 'px';
-    const left = r.left - r.width - 8;
-    snapBtn.el.style.left   = Math.max(8, left) + 'px';
+    const leftSnap = r.left - r.width - 8;
+    snapBtn.el.style.left   = Math.max(8, leftSnap) + 'px';
+    /* PDF 按钮：再往左一格 */
+    if(pdfBtn.el){
+      pdfBtn.el.style.display = 'block';
+      pdfBtn.el.style.width  = r.width  + 'px';
+      pdfBtn.el.style.height = r.height + 'px';
+      pdfBtn.el.style.top    = r.top    + 'px';
+      const leftPdf = leftSnap - r.width - 8;
+      pdfBtn.el.style.left   = Math.max(8, leftPdf) + 'px';
+    }
   }
 
   function showSnapButton(){
     if(!snapBtn.el) snapBtn.el = createSnapButton();
+    if(!pdfBtn.el)  pdfBtn.el  = createPdfButton();
     syncSnapButton();
     /* 兜底轮询：弹窗内部滚动/窗口变化时保持贴随"打印"按钮 */
     if(!snapBtn.timer){
@@ -570,6 +601,7 @@ td.k-seller{color:var(--seller);}
 
   function hideSnapButton(){
     if(snapBtn.el) snapBtn.el.style.display = 'none';
+    if(pdfBtn.el)  pdfBtn.el.style.display  = 'none';
     if(snapBtn.timer){ clearInterval(snapBtn.timer); snapBtn.timer = null; }
   }
 
@@ -621,6 +653,258 @@ td.k-seller{color:var(--seller);}
       showToast('截图失败：' + (e && e.message ? e.message : '未知错误'));
     }finally{
       if(b){ b.textContent = '一键截图'; b.disabled = false; b.style.opacity = '1'; }
+    }
+  }
+
+  /* ================================================================
+     v2.3.0 新增 / v2.4.0 改造：一键多页截图（劫持原生打印重排版 → A4 PNG）
+     链路：原型劫持 iframe.contentWindow → 点击原生"打印"按钮 → print-js
+     在隐藏 iframe 里重排版（明细全展开、无滚动裁剪）→ 在它调 print() 弹框前
+     截获重排版 HTML → 离屏 iframe → 逐页 html2canvas 渲染（A4@300DPI）→
+     垫入完整 A4 画布 + 写入 300DPI 元数据 → 逐页下载 PNG
+     注：print-js 复制的重排版无官方水印（与浏览器"另存为PDF"一致）；
+     若 execCommand('print') 被拦后 print-js 会走 contentWindow.print() 兜底，
+     两路均已埋点，系统打印框不会弹出
+     ================================================================ */
+
+  /* ---------- 原型劫持 + 预埋：捕获 print-js 重排版 HTML ----------
+     print-js 两种行为都要覆盖：
+     ① 删除重建 printJS iframe（新 iframe 首次读 contentWindow 走原型 getter → 自动埋点）
+     ② 复用旧 iframe（print-js 缓存了 window 引用不再走 getter）→
+        需主动预埋：点打印前先把埋点写进现有 iframe 的 execCommand/print */
+  function hijackForCapture(onCaptured){
+    const proto = HTMLIFrameElement.prototype;
+    const desc = Object.getOwnPropertyDescriptor(proto, 'contentWindow');
+    const state = { html: null, done: false };
+    const restore = function(){
+      try { Object.defineProperty(proto, 'contentWindow', desc); } catch(e) {}
+    };
+
+    const instrument = function(iframe){
+      if(!iframe || iframe.id !== 'printJS' || iframe.__pdfHooked) return;
+      iframe.__pdfHooked = true;
+      const d = (function(){ try { return iframe.contentDocument || iframe.contentWindow.document; } catch(e){ return null; } })();
+      if(!d) return;
+      const grab = function(){
+        if(state.html || state.done) return true;
+        if(!d.documentElement || !d.body) return false;
+        if(!d.body.textContent || d.body.textContent.indexOf('发票号码') === -1) return false;  /* 未写入完整 */
+        state.html = d.documentElement.outerHTML;
+        state.done = true;
+        restore();
+        onCaptured(state.html);
+        return true;
+      };
+      if(d.execCommand){
+        const oe = d.execCommand.bind(d);
+        d.execCommand = function(cmd){
+          if(cmd === 'print' && grab()) return true;
+          return oe.apply(d, arguments);
+        };
+      }
+      try {
+        const cw = iframe.contentWindow;
+        if(cw && cw.print) cw.print = function(){ grab(); };
+      } catch(e) {}
+    };
+
+    /* 预埋①：已存在的 printJS iframe（复用场景） */
+    instrument(document.getElementById('printJS'));
+    /* 预埋②：新建场景走原型 getter */
+    try {
+      Object.defineProperty(proto, 'contentWindow', {
+        configurable: true,
+        get: function(){
+          const cw = desc.get.call(this);
+          if(cw && this.id === 'printJS' && !state.done) instrument(this);
+          return cw;
+        }
+      });
+    } catch(e) { restore(); }
+    return restore;
+  }
+
+  /* ================================================================
+     v2.4.0 新增 / v2.4.1 调整：一键多页截图（劫持原生打印重排版 → A4 分页 PNG）
+     v2.4.1：150DPI（1240×1754，体积/速度较 300DPI 减 3/4）、末页按实际内容
+     高度不补满、文件名后缀改为 -发票查验截图多页{页码}.png
+     画布：A4@150DPI = 1240×1754px，四边 50px 白边（=24pt，与打印边距一致）
+     PNG 内嵌 pHYs 元数据（150DPI），打印时按 A4 物理尺寸解释
+     ================================================================ */
+
+  /* ---------- CRC32（PNG chunk 计算） ---------- */
+  function crc32(bytes){
+    let table = crc32._table;
+    if(!table){
+      table = crc32._table = new Uint32Array(256);
+      for(let n = 0; n < 256; n++){
+        let c = n;
+        for(let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        table[n] = c >>> 0;
+      }
+    }
+    let crc = 0xFFFFFFFF;
+    for(let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ table[(crc ^ bytes[i]) & 0xFF];
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  /* ---------- PNG 写入 300DPI 元数据（pHYs chunk） ----------
+     canvas.toBlob 不写 DPI 信息，看图/打印软件默认按 96DPI 解释导致纸张偏大；
+     在 IHDR 后插入 pHYs chunk（300DPI = 11811 像素/米），打印时即按 A4 物理尺寸 */
+  function setPngDpi(arrayBuffer, dpi){
+    try{
+      const src = new Uint8Array(arrayBuffer);
+      if(src.length < 33 || src[0] !== 0x89 || src[1] !== 0x50) return arrayBuffer;
+      const ppm = Math.round(dpi / 0.0254);
+      const chunk = new Uint8Array(21);            /* 4len+4type+9data+4crc */
+      const dv = new DataView(chunk.buffer);
+      dv.setUint32(0, 9);
+      chunk[4]=0x70; chunk[5]=0x48; chunk[6]=0x59; chunk[7]=0x73;   /* 'pHYs' */
+      dv.setUint32(8, ppm); dv.setUint32(12, ppm); chunk[16] = 1;   /* 单位：米 */
+      dv.setUint32(17, crc32(chunk.subarray(4, 17)));
+      const out = new Uint8Array(src.length + 21);
+      out.set(src.subarray(0, 33), 0);             /* 签名8 + IHDR(25) */
+      out.set(chunk, 33);
+      out.set(src.subarray(33), 54);
+      return out.buffer;
+    }catch(e){ return arrayBuffer; }
+  }
+
+  /* ---------- 多页截图主流程（两段式反馈 + 逐页进度） ---------- */
+  async function captureAndSavePages(){
+    const b = pdfBtn.el;
+    const btn = findPrintButton();
+    if(!btn){ showToast('未找到打印按钮'); return; }
+    if(typeof html2canvas === 'undefined'){
+      showToast('截图库未加载成功，请检查网络后刷新重试');
+      return;
+    }
+    /* 第一段：立即反馈 */
+    if(b){ b.textContent = '已点击'; b.disabled = true; b.style.opacity = '.7'; }
+    await nextPaint();
+    /* 第二段：生成中（print-js 写入内容需数秒） */
+    if(b){ b.textContent = '生成中…'; }
+    await nextPaint();
+    let holder = null;
+    try{
+      /* 1. 捕获 print-js 重排版 HTML
+         预检：若 printJS iframe 里已有当前票的完整重排版（用户点过打印/上次生成留下），
+         直接复用（0 秒）；否则点击"打印"按钮触发重排版并劫持捕获。
+         注：长票重排版 HTML 达 55MB 级，print-js 同步写入阻塞主线程可达 30~90 秒，
+         超时须放宽到 120 秒 */
+      const q0 = parseQR() || {};
+      const curNum = q0.number || extractInvoiceNumber();
+      let html = null;
+      const pre = document.getElementById('printJS');
+      if(pre){
+        try{
+          const pd = pre.contentDocument || pre.contentWindow.document;
+          if(pd && pd.body && pd.body.textContent && pd.body.textContent.indexOf(curNum) > -1
+             && pd.documentElement.outerHTML.length > 10000){
+            html = pd.documentElement.outerHTML;   /* 复用现成重排版 */
+          }
+        }catch(e){}
+      }
+      if(!html){
+        html = await new Promise(function(resolve, reject){
+          let settled = false;
+          const timer = setTimeout(function(){
+            if(!settled){ settled = true; reject(new Error('重排版捕获超时（长票内容生成较慢，请重试）')); }
+          }, 120000);
+          const onGot = function(h){
+            if(!settled){ settled = true; clearTimeout(timer); resolve(h); }
+          };
+          const restore = hijackForCapture(onGot);
+          btn.click();
+          setTimeout(function(){ if(!settled) restore(); }, 120000);
+        });
+      }
+
+      /* 2. 离屏 iframe 渲染（长票 55MB 级 HTML，srcdoc 写入需几秒） */
+      holder = document.createElement('iframe');
+      holder.style.cssText = 'visibility:hidden;position:absolute;left:-99999px;top:0;width:1160px;height:50000px;border:0';
+      document.body.appendChild(holder);
+      await new Promise(function(res){ holder.onload = res; holder.srcdoc = html; });
+      const hdoc = holder.contentDocument;
+      const container = hdoc.querySelector('.invoice-container');
+      if(!container) throw new Error('重排版内容缺失');
+      const st = hdoc.createElement('style');
+      st.textContent = 'html,body{margin:0;padding:0;background:#fff;} .invoice-container{margin:0;}';
+      hdoc.head.appendChild(st);
+
+      /* 3. A4@150DPI 分页参数：画布 1240×1754，四边 50px 白边 */
+      const A4W = 1240, A4H = 1754, MARGIN = 50;
+      const CW = A4W - MARGIN*2, CH = A4H - MARGIN*2;   /* 内容区 1140×1654 */
+      const cRect = container.getBoundingClientRect();
+      const scale = CW / cRect.width;                    /* ≈1.08，内容铺满页宽 */
+      const srcPageH = CH / scale;                       /* 每页可容纳的内容 CSS 高度 */
+      const pageCount = Math.max(1, Math.ceil(cRect.height / srcPageH));
+
+      /* 4. 渲染策略：
+         快路径——150DPI 下整图高度约 2.1 万像素，低于 Chrome 画布 32767px 上限，
+         可一次渲染整图再内存切片，DOM 只克隆 1 次（逐页渲染每页克隆 57MB 文档
+         各耗时约 1.7 秒，是性能瓶颈）；
+         回退——万一超过画布上限（超长票），退回逐页渲染 */
+      const totalPxH = Math.round(cRect.height * scale);
+      let full = null;
+      if(totalPxH <= 32000 && totalPxH * CW <= 260000000){
+        if(b){ b.textContent = '渲染中…'; }
+        full = await html2canvas(container, {
+          backgroundColor : '#ffffff',
+          x: 0, y: 0, width: cRect.width, height: cRect.height,
+          scale: scale, useCORS: true, logging: false
+        });
+      }
+
+      const names = [];
+      for(let p = 0; p < pageCount; p++){
+        if(b && pageCount > 1){ b.textContent = '生成中 ' + (p+1) + '/' + pageCount + '…'; }
+        /* 本页内容图：来自整图切片（快路径）或逐页渲染（回退） */
+        let part;
+        if(full){
+          const syPx = p * CH;
+          const shPx = Math.min(CH, full.height - syPx);
+          part = document.createElement('canvas');
+          part.width = CW; part.height = Math.round(shPx);
+          part.getContext('2d').drawImage(full, 0, syPx, CW, shPx, 0, 0, CW, shPx);
+        }else{
+          const sy = p * srcPageH;
+          const sh = Math.min(srcPageH, cRect.height - sy);
+          part = await html2canvas(container, {
+            backgroundColor : '#ffffff',
+            x: 0, y: sy, width: cRect.width, height: sh,
+            scale: scale, useCORS: true, logging: false
+          });
+        }
+        /* 5. 垫入 A4 画布：末页按实际内容高度不补满（非末页内容正好填满） */
+        const page = document.createElement('canvas');
+        page.width = A4W;
+        page.height = Math.min(A4H, MARGIN + part.height + MARGIN);
+        const ctx = page.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, A4W, page.height);
+        ctx.drawImage(part, MARGIN, MARGIN);
+        const blob = await new Promise(function(res){ page.toBlob(res, 'image/png'); });
+        if(!blob) throw new Error('PNG 编码失败');
+        /* 6. 写入 150DPI 元数据并下载 */
+        const withDpi = setPngDpi(await blob.arrayBuffer(), 150);
+        const name = buildPageFilename(p + 1, pageCount);
+        names.push(name);
+        downloadBlob(new Blob([withDpi], { type: 'image/png' }), name);
+        await sleep(300);   /* 多文件下载间隔，降低浏览器拦截概率 */
+      }
+      if(full){ full.width = 0; full.height = 0; full = null; }   /* 及时释放大画布内存 */
+      holder.remove(); holder = null;
+
+      if(pageCount > 1){
+        showToast('已保存 ' + pageCount + ' 页 PNG（' + names[0] + ' …）；若浏览器询问"下载多个文件"请选择允许');
+      }else{
+        showToast('PNG 已保存：' + names[0]);
+      }
+    }catch(e){
+      showToast('多页截图失败：' + (e && e.message ? e.message : '未知错误'));
+      if(holder) holder.remove();
+    }finally{
+      if(b){ b.textContent = '一键多页截图'; b.disabled = false; b.style.opacity = '1'; }
     }
   }
 
@@ -833,22 +1117,27 @@ PDF电子发票解析工具 — 使用说明
 · 重复      ：同一发票号码出现多次，行底色标紫提醒，可通过
               "删除重复"按钮批量清理
 
-五、一键查验（配合油猴脚本自动填表 + 一键截图）
+五、一键查验（配合油猴脚本自动填表 + 一键截图 / 一键多页截图）
 ------------
 使用流程：
 1. （首次使用需一次性配置）安装 Tampermonkey 浏览器扩展，
    新建脚本，粘贴脚本源码的全部内容并保存
    【最方便的方式】点击网页顶部「查验脚本」按钮 → 弹窗内
    "一键复制源码" → 到 Tampermonkey 新建脚本中粘贴保存即可，
-   无需手动打开 js 文件（当前版本 v2.2.2；装过旧版脚本的，
+   无需手动打开 js 文件（当前版本 v2.4.1；装过旧版脚本的，
    打开旧脚本全选删除后粘贴新源码保存即完成升级）
 2. 在表格中点击某行的"查验"按钮 → 自动打开发票查验平台新标签页
 3. 油猴脚本自动填好 发票号码 / 开票日期 / 价税合计 三项
 4. 人工输入图片验证码 → 点击"查验"按钮 → 查看结果
-5. 查验结果出来后，弹窗内"打印"按钮左侧自动出现「一键截图」
-   按钮：点击后把发票详情弹窗（含官方水印、票面、特别提示）
-   保存为 PNG 图片并自动下载，文件名
-   dzfp_{发票号码}_{购买方}_{价税合计}-发票查验截图.png
+5. 查验结果出来后，弹窗内"打印"按钮左侧自动出现「一键截图」和
+   「一键多页截图」两个按钮：
+   · 一键截图：把发票详情弹窗（含官方水印、票面、特别提示）保存为
+     单张 PNG，文件名 dzfp_{发票号码}_{购买方}_{价税合计}-发票查验截图.png
+   · 一键多页截图：借用平台"打印"功能的排版引擎，把票面重排版后按
+     A4 纵向（150DPI）分页输出 PNG，明细行全部展开不截断、无水印；
+     多页时每页单独下载并带页码（…-发票查验截图多页1.png、
+     …-发票查验截图多页2.png），单页则无页码后缀；
+     PNG 内嵌 DPI 信息，打印时自动按 A4 物理尺寸排版
 
 说明：
 · 传递原理：发票信息编码在网址 # 号之后（不会发送给税务局服务器），
@@ -857,9 +1146,13 @@ PDF电子发票解析工具 — 使用说明
 · 一键截图：号码/金额取自工具传递的参数，购买方固定从票面提取
   （票面字面的购买方名称）；截图经浏览器直接下载，不弹对话框；
   截图库 html2canvas 由脚本自动从 CDN 加载，需联网
+· 一键多页截图：长票（明细行多）生成较慢，需等待数秒到数十秒
+  （脚本超时 120 秒）；一次下载多个文件时浏览器可能询问
+  "下载多个文件"，选择允许；查验时点过"打印"的票会复用现成
+  排版，生成更快
 · 未安装油猴脚本时："查验"按钮仍会打开发票查验平台，
-  但不会自动填写，需手工输入发票信息（也没有一键截图按钮）
-· 油猴脚本文件 发票查验助手_2.2.2.user.js 在工具文件夹内，
+  但不会自动填写，需手工输入发票信息（也没有截图按钮）
+· 油猴脚本文件 发票查验助手_2.4.1.user.js 在工具文件夹内，
   也可在 Tampermonkey 中从文件导入
 
 · 网页顶部有「使用说明」按钮，点击可直接查看本说明，无需打开 txt 文件
